@@ -149,45 +149,39 @@ class Connection:
             return list(done)[0].result()
 
     async def proxy_to_backend(self):
-        try:
-            buf = None
+        buf = None
 
-            while True:
-                await self.connectivity.wait()
-                if buf is not None:
-                    data = buf
-                    buf = None
-                else:
-                    data = await self._read(self.client_sock, 4096)
-                if data == b'':
-                    self.close()
-                    break
-                if self.connectivity_loss.is_set():
-                    if data:
-                        buf = data
-                    continue
-                await self._write(self.backend_sock, data)
-        finally:
-            self.client_sock.shutdown()
+        while True:
+            await self.connectivity.wait()
+            if buf is not None:
+                data = buf
+                buf = None
+            else:
+                data = await self._read(self.client_sock, 4096)
+            if data == b'':
+                self.close()
+                break
+            if self.connectivity_loss.is_set():
+                if data:
+                    buf = data
+                continue
+            await self._write(self.backend_sock, data)
 
     async def proxy_from_backend(self):
-        try:
-            buf = None
+        buf = None
 
-            while True:
-                await self.connectivity.wait()
-                if buf is not None:
-                    data = buf
-                    buf = None
-                else:
-                    data = await self._read(self.backend_sock, 4096)
-                if data == b'':
-                    self.close()
-                    break
-                if self.connectivity_loss.is_set():
-                    if data:
-                        buf = data
-                    continue
-                await self._write(self.client_sock, data)
-        finally:
-            self.backend_sock.shutdown()
+        while True:
+            await self.connectivity.wait()
+            if buf is not None:
+                data = buf
+                buf = None
+            else:
+                data = await self._read(self.backend_sock, 4096)
+            if data == b'':
+                self.close()
+                break
+            if self.connectivity_loss.is_set():
+                if data:
+                    buf = data
+                continue
+            await self._write(self.client_sock, data)
