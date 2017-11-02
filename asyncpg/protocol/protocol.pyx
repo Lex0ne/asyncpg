@@ -353,6 +353,9 @@ cdef class BaseProtocol(CoreProtocol):
                         # Abort the COPY operation on any error in
                         # output sink.
                         self._request_cancel()
+                        # Make asyncio shut up about unretrieved
+                        # QueryCanceledError
+                        waiter.add_done_callback(lambda f: f.exception())
                         raise
 
                 # done will be True upon receipt of CopyDone.
@@ -474,6 +477,8 @@ cdef class BaseProtocol(CoreProtocol):
         except Exception as e:
             self._write_copy_fail_msg(str(e))
             self._request_cancel()
+            # Make asyncio shut up about unretrieved QueryCanceledError
+            waiter.add_done_callback(lambda f: f.exception())
             raise
 
         self._write_copy_done_msg()
@@ -801,11 +806,10 @@ cdef class BaseProtocol(CoreProtocol):
             # We have received the result of a cancelled command.
             self.cancel_waiter.set_result(None)
             self.cancel_waiter = None
-            if self.waiter is not None:
-                # Cancel the future waiting for the result of the command.
-                self.waiter.cancel()
+            if self.waiter is not None and self.waiter.done():
                 self.waiter = None
-            return
+            if self.waiter is None:
+                return
 
         try:
             self._dispatch_result()

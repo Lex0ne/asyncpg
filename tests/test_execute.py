@@ -7,7 +7,6 @@
 
 import asyncio
 import asyncpg
-import concurrent.futures
 
 from asyncpg import _testbase as tb
 
@@ -79,7 +78,7 @@ class TestExecuteScript(tb.ConnectedTestCase):
         await self.con.close()
         self.assertTrue(self.con.is_closed())
 
-        with self.assertRaises(concurrent.futures.CancelledError):
+        with self.assertRaises(asyncpg.QueryCanceledError):
             await fut
 
     async def test_execute_script_interrupted_terminate(self):

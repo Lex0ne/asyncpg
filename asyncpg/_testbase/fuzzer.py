@@ -126,11 +126,11 @@ class Connection:
             self.proxy_from_backend_task.cancel()
 
     async def handle(self):
-        self.proxy_to_backend_task = self.loop.create_task(
-            self.proxy_to_backend())
+        self.proxy_to_backend_task = asyncio.ensure_future(
+            self.proxy_to_backend(), loop=self.loop)
 
-        self.proxy_from_backend_task = self.loop.create_task(
-            self.proxy_from_backend())
+        self.proxy_from_backend_task = asyncio.ensure_future(
+            self.proxy_from_backend(), loop=self.loop)
 
         try:
             await asyncio.gather(

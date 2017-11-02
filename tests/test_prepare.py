@@ -7,7 +7,6 @@
 
 import asyncio
 import asyncpg
-import concurrent.futures
 import gc
 import unittest
 
@@ -95,7 +94,7 @@ class TestPrepare(tb.ConnectedTestCase):
         await self.con.close()
         self.assertTrue(self.con.is_closed())
 
-        with self.assertRaises(concurrent.futures.CancelledError):
+        with self.assertRaises(asyncpg.CancelledError):
             await fut
 
         # Test that it's OK to call close again
