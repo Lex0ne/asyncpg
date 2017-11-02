@@ -521,24 +521,37 @@ cdef class BaseProtocol(CoreProtocol):
         self._terminate()
         self.transport.abort()
 
-    async def close(self):
-        if self.cancel_waiter is not None:
-            await self.cancel_waiter
+    async def close(self, timeout):
+        if self.closing:
+            return
+
+        self.closing = True
+
         if self.cancel_sent_waiter is not None:
             await self.cancel_sent_waiter
             self.cancel_sent_waiter = None
 
-        self._handle_waiter_on_connection_lost(None)
+        if self.cancel_waiter is not None:
+            await self.cancel_waiter
+
+        if self.waiter is not None:
+            # If there is a query running, cancel it
+            self._request_cancel()
+            await self.cancel_sent_waiter
+            self.cancel_sent_waiter = None
+            if self.cancel_waiter is not None:
+                await self.cancel_waiter
+
         assert self.waiter is None
 
-        if self.closing:
-            return
+        timeout = self._get_timeout_impl(timeout)
 
+        # Ask the server to terminate the connection and wait for it
+        # to drop.
+        self.waiter = self._new_waiter(timeout)
         self._terminate()
-        self.waiter = self.create_future()
-        self.closing = True
+        await self.waiter
         self.transport.abort()
-        return await self.waiter
 
     def _request_cancel(self):
         self.cancel_waiter = self.create_future()
@@ -614,6 +627,19 @@ cdef class BaseProtocol(CoreProtocol):
         if self.waiter is not None or self.timeout_handle is not None:
             raise apg_exc.InterfaceError(
                 'cannot perform operation: another operation is in progress')
+
+    def _is_cancelling(self):
+        return (
+            self.cancel_waiter is not None or
+            self.cancel_sent_waiter is not None
+        )
+
+    async def _wait_for_cancellation(self):
+        if self.cancel_sent_waiter is not None:
+            await self.cancel_sent_waiter
+            self.cancel_sent_waiter = None
+        if self.cancel_waiter is not None:
+            await self.cancel_waiter
 
     cdef _coreproto_error(self):
         try:
@@ -764,11 +790,13 @@ cdef class BaseProtocol(CoreProtocol):
             self.timeout_handle = None
 
         if self.cancel_waiter is not None:
-            # We have received the result of a cancelled operation.
-            # Simply ignore the result.
+            # We have received the result of a cancelled command.
             self.cancel_waiter.set_result(None)
             self.cancel_waiter = None
-            self.waiter = None
+            if self.waiter is not None:
+                # Cancel the future waiting for the result of the command.
+                self.waiter.cancel()
+                self.waiter = None
             return
 
         try:

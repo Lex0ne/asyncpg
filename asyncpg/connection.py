@@ -958,15 +958,22 @@ class Connection(metaclass=ConnectionMeta):
         """
         return not self._protocol.is_connected() or self._aborted
 
-    async def close(self):
-        """Close the connection gracefully."""
+    async def close(self, *, timeout=None):
+        """Close the connection gracefully.
+
+        :param float timeout:
+            Optional timeout value in seconds.
+
+        .. versionchanged:: 0.14.0
+           Added the *timeout* parameter.
+        """
         if self.is_closed():
             return
         self._mark_stmts_as_closed()
         self._listeners.clear()
         self._log_listeners.clear()
         self._aborted = True
-        await self._protocol.close()
+        await self._protocol.close(timeout)
 
     def terminate(self):
         """Terminate the connection without waiting for pending data."""
@@ -976,13 +983,13 @@ class Connection(metaclass=ConnectionMeta):
         self._aborted = True
         self._protocol.abort()
 
-    async def reset(self):
+    async def reset(self, *, timeout=None):
         self._check_open()
         self._listeners.clear()
         self._log_listeners.clear()
         reset_query = self._get_reset_query()
         if reset_query:
-            await self.execute(reset_query)
+            await self.execute(reset_query, timeout=timeout)
 
     def _check_open(self):
         if self.is_closed():

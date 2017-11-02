@@ -7,6 +7,7 @@
 
 import asyncio
 import asyncpg
+import concurrent.futures
 import gc
 import unittest
 
@@ -94,8 +95,7 @@ class TestPrepare(tb.ConnectedTestCase):
         await self.con.close()
         self.assertTrue(self.con.is_closed())
 
-        with self.assertRaisesRegex(asyncpg.ConnectionDoesNotExistError,
-                                    'closed in the middle'):
+        with self.assertRaises(concurrent.futures.CancelledError):
             await fut
 
         # Test that it's OK to call close again

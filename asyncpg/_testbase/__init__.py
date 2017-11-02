@@ -21,6 +21,8 @@ from asyncpg import cluster as pg_cluster
 from asyncpg import connection as pg_connection
 from asyncpg import pool as pg_pool
 
+from . import fuzzer
+
 
 @contextlib.contextmanager
 def silence_asyncio_long_exec_warning():
@@ -34,6 +36,14 @@ def silence_asyncio_long_exec_warning():
         yield
     finally:
         logger.removeFilter(flt)
+
+
+def with_timeout(timeout):
+    def wrap(func):
+        func.__timeout__ = timeout
+        return func
+
+    return wrap
 
 
 class TestCaseMeta(type(unittest.TestCase)):
@@ -64,7 +74,11 @@ class TestCaseMeta(type(unittest.TestCase)):
         for methname, meth in mcls._iter_methods(bases, ns):
             @functools.wraps(meth)
             def wrapper(self, *args, __meth__=meth, **kwargs):
-                self.loop.run_until_complete(__meth__(self, *args, **kwargs))
+                coro = __meth__(self, *args, **kwargs)
+                timeout = getattr(meth, '__timeout__', 10.0)
+                if timeout:
+                    coro = asyncio.wait_for(coro, timeout)
+                self.loop.run_until_complete(coro)
             ns[methname] = wrapper
 
         return super().__new__(mcls, name, bases, ns)
@@ -153,7 +167,8 @@ def _start_default_cluster(server_settings={}):
 
 
 def _shutdown_cluster(cluster):
-    cluster.stop()
+    if cluster.get_status() == 'running':
+        cluster.stop()
     cluster.destroy()
 
 
@@ -193,15 +208,68 @@ class ClusterTestCase(TestCase):
         super().setUpClass()
         cls.setup_cluster()
 
+    @classmethod
+    def get_connection_spec(cls):
+        return cls.cluster.get_connection_spec()
+
     def create_pool(self, pool_class=pg_pool.Pool, **kwargs):
-        conn_spec = self.cluster.get_connection_spec()
+        conn_spec = self.get_connection_spec()
         conn_spec.update(kwargs)
         return create_pool(loop=self.loop, pool_class=pool_class, **conn_spec)
+
+    def connect(self, **kwargs):
+        conn_spec = self.get_connection_spec()
+        conn_spec.update(kwargs)
+        return pg_connection.connect(**conn_spec, loop=self.loop)
 
     @classmethod
     def start_cluster(cls, ClusterCls, *,
                       cluster_kwargs={}, server_settings={}):
         return _start_cluster(ClusterCls, cluster_kwargs, server_settings)
+
+
+class ProxiedClusterTestCase(ClusterTestCase):
+    @classmethod
+    def get_server_settings(cls):
+        settings = dict(super().get_server_settings())
+        settings['listen_addresses'] = '127.0.0.1'
+        return settings
+
+    @classmethod
+    def get_proxy_settings(cls):
+        return {'fuzzing-mode': None}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        conn_spec = cls.cluster.get_connection_spec()
+        host = conn_spec.get('host')
+        if not host:
+            host = '127.0.0.1'
+        elif host.startswith('/'):
+            host = '127.0.0.1'
+        cls.proxy = fuzzer.TCPFuzzingProxy(
+            backend_host=host,
+            backend_port=conn_spec['port'],
+            loop=cls.loop
+        )
+        cls.loop.run_until_complete(cls.proxy.start())
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.loop.run_until_complete(cls.proxy.stop())
+        super().tearDownClass()
+
+    @classmethod
+    def get_connection_spec(cls):
+        conn_spec = cls.cluster.get_connection_spec()
+        conn_spec['host'] = cls.proxy.listening_addr
+        conn_spec['port'] = cls.proxy.listening_port
+        return conn_spec
+
+    def tearDown(self):
+        self.proxy.reset()
+        super().tearDown()
 
 
 def with_connection_options(**options):
