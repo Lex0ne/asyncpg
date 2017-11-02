@@ -75,7 +75,7 @@ class TestCaseMeta(type(unittest.TestCase)):
             @functools.wraps(meth)
             def wrapper(self, *args, __meth__=meth, **kwargs):
                 coro = __meth__(self, *args, **kwargs)
-                timeout = getattr(__meth__, '__timeout__', 15.0)
+                timeout = getattr(__meth__, '__timeout__', 60.0)
                 if timeout:
                     coro = asyncio.wait_for(coro, timeout, loop=self.loop)
                 try:

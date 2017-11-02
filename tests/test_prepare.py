@@ -94,7 +94,7 @@ class TestPrepare(tb.ConnectedTestCase):
         await self.con.close()
         self.assertTrue(self.con.is_closed())
 
-        with self.assertRaises(asyncpg.CancelledError):
+        with self.assertRaises(asyncpg.QueryCanceledError):
             await fut
 
         # Test that it's OK to call close again
