@@ -446,6 +446,7 @@ class TestPool(tb.ConnectedTestCase):
                 id3 = await get_xact_id(con)
                 self.assertNotEqual(id2, id3)
 
+    @tb.with_timeout(30)
     async def test_pool_connection_methods(self):
         async def test_fetch(pool):
             i = random.randint(0, 20)
@@ -492,9 +493,10 @@ class TestPool(tb.ConnectedTestCase):
         methods = [test_fetch, test_fetchrow, test_fetchval,
                    test_execute, test_execute_with_arg]
 
-        for method in methods:
-            with self.subTest(method=method.__name__):
-                await run(200, method)
+        with tb.silence_asyncio_long_exec_warning():
+            for method in methods:
+                with self.subTest(method=method.__name__):
+                    await run(200, method)
 
     async def test_pool_connection_execute_many(self):
         async def worker(pool):

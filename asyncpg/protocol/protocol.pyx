@@ -550,7 +550,15 @@ cdef class BaseProtocol(CoreProtocol):
         # to drop.
         self.waiter = self._new_waiter(timeout)
         self._terminate()
-        await self.waiter
+        try:
+            await self.waiter
+        except ConnectionResetError:
+            # There appears to be a difference in behaviour of asyncio
+            # in Windows, where, instead of calling protocol.connection_lost()
+            # a ConnectionResetError will be thrown into the task.
+            pass
+        finally:
+            self.waiter = None
         self.transport.abort()
 
     def _request_cancel(self):

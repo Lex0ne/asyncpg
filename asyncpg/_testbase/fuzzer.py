@@ -36,13 +36,25 @@ class TCPFuzzingProxy:
         self.sock = None
 
     async def _wait(self, work):
-        done, _ = await asyncio.wait([work, self.stop_event.wait()],
-                                     return_when=asyncio.FIRST_COMPLETED,
-                                     loop=self.loop)
-        if self.stop_event.is_set():
-            raise StopServer()
-        else:
-            return list(done)[0].result()
+        work_task = asyncio.ensure_future(work, loop=self.loop)
+        stop_event_task = asyncio.ensure_future(self.stop_event.wait(),
+                                                loop=self.loop)
+
+        try:
+            await asyncio.wait(
+                [work_task, stop_event_task],
+                return_when=asyncio.FIRST_COMPLETED,
+                loop=self.loop)
+
+            if self.stop_event.is_set():
+                raise StopServer()
+            else:
+                return work_task.result()
+        finally:
+            if not work_task.done():
+                work_task.cancel()
+            if not stop_event_task.done():
+                stop_event_task.cancel()
 
     async def start(self):
         if self.listening_port is None:
@@ -129,24 +141,50 @@ class Connection:
             self.backend_sock.close()
 
     async def _read(self, sock, n):
-        done, _ = await asyncio.wait([
-            self.loop.sock_recv(sock, n), self.connectivity_loss.wait()],
-            return_when=asyncio.FIRST_COMPLETED,
+        read_task = asyncio.ensure_future(
+            self.loop.sock_recv(sock, n),
             loop=self.loop)
-        if self.connectivity_loss.is_set():
-            return None
-        else:
-            return list(done)[0].result()
+        conn_event_task = asyncio.ensure_future(
+            self.connectivity_loss.wait(),
+            loop=self.loop)
+
+        try:
+            await asyncio.wait(
+                [read_task, conn_event_task],
+                return_when=asyncio.FIRST_COMPLETED,
+                loop=self.loop)
+
+            if self.connectivity_loss.is_set():
+                return None
+            else:
+                return read_task.result()
+        finally:
+            if not read_task.done():
+                read_task.cancel()
+            if not conn_event_task.done():
+                conn_event_task.cancel()
 
     async def _write(self, sock, data):
-        done, _ = await asyncio.wait([
-            self.loop.sock_sendall(sock, data), self.connectivity_loss.wait()],
-            return_when=asyncio.FIRST_COMPLETED,
-            loop=self.loop)
-        if self.connectivity_loss.is_set():
-            return
-        else:
-            return list(done)[0].result()
+        write_task = asyncio.ensure_future(
+            self.loop.sock_sendall(sock, data), loop=self.loop)
+        conn_event_task = asyncio.ensure_future(
+            self.connectivity_loss.wait(), loop=self.loop)
+
+        try:
+            await asyncio.wait(
+                [write_task, conn_event_task],
+                return_when=asyncio.FIRST_COMPLETED,
+                loop=self.loop)
+
+            if self.connectivity_loss.is_set():
+                return None
+            else:
+                return write_task.result()
+        finally:
+            if not write_task.done():
+                write_task.cancel()
+            if not conn_event_task.done():
+                conn_event_task.cancel()
 
     async def proxy_to_backend(self):
         buf = None
