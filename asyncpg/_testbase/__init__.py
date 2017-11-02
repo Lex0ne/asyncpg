@@ -77,7 +77,7 @@ class TestCaseMeta(type(unittest.TestCase)):
                 coro = __meth__(self, *args, **kwargs)
                 timeout = getattr(__meth__, '__timeout__', 15.0)
                 if timeout:
-                    coro = asyncio.wait_for(coro, timeout)
+                    coro = asyncio.wait_for(coro, timeout, loop=self.loop)
                 try:
                     self.loop.run_until_complete(coro)
                 except asyncio.TimeoutError:
